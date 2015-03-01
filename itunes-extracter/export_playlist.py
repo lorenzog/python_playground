@@ -1,8 +1,8 @@
 '''iTunes playlist music exporter.
 
-Reads an iTunes-exported playlist (in XML) format and copies the files to a new location.
+Reads an iTunes-exported playlist (in XML) format and copies the files to a new location, then re-writes the playlist with the new location of each file.
 
-Then re-writes the playlist with the new location of each file.
+This code is under the GNU GPLv3 license (see LICENSE.txt)
 
 Lorenzo Grespan at gmail.com'''
 import argparse
@@ -13,6 +13,7 @@ import urllib
 
 from lxml import etree
 
+# set to DEBUG for more help
 logging.getLogger().level = logging.INFO
 
 
@@ -21,7 +22,11 @@ def main():
     p.add_argument('xmlfile', help="The iTunes exported playlist")
     p.add_argument('itlib', help="Your iTunes playlist as a fullpath")
     p.add_argument('dstpath', help="Your destination path")
+    p.add_argument('-v', '--verbose', action='store_true')
     args = p.parse_args()
+
+    if args.verbose:
+        logging.getLogger().level = logging.DEBUG
 
     # add trailing slash
     dstpath_unix = os.path.join(args.dstpath, '')
@@ -72,6 +77,7 @@ def main():
         # save the new full path to the XML element
         el.getnext().text = destpath_fullurl
 
+    # now write playlist to disc
     dstxml_dir = os.path.dirname(args.xmlfile)
     dstxml_name = os.path.basename(args.xmlfile)
     new_xml = 'new_{}'.format(dstxml_name)
