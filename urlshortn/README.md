@@ -8,6 +8,9 @@ URLs with performance in mind:
  * The second method uses a producer/consumer pattern with a pool of
    unique URLs
 
+The code is not meant to be a fully featured URL shortener, as much as a
+PoC to see which method is faster. 
+
 Usage:
 
     $ python shortn.py random 10000
@@ -60,6 +63,13 @@ Porting to real life
 The "hash DB" and "short URL DB" can be mapped to key/value stores (e.g.
 REDIS) while the "short URL pool" could be a memcached instance shared
 between workers.
+
+The "producer" is a singleton but IRL could easily scale to become
+either an object or a stored procedure.
+
+The "workers" could be implemented as asynchronous uwsgi workers
+responding to GETs using a combination of a modern webserver (nginx,
+apache) and one of the many web frameworks (tornado, flask).
 
 Pros and cons
 -------------

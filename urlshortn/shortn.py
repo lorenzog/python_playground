@@ -1,4 +1,6 @@
-'''Short URL generator'''
+'''Short URL generator
+
+This code is released under the GPL v3 license.'''
 from __future__ import print_function
 
 import logging
