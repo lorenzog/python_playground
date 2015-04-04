@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import logging
+import argparse
 import string
 import random
 import sys
@@ -11,19 +12,26 @@ import hashlib
 
 CHARACTER_SET = ''.join([string.ascii_letters, string.digits])
 SHORT_URL_LEN = 7
-POOL_MIN_THRESHOLD = 10
 
-TOTAL_RUNS = 1000
+# Pool fine-tuning:
+# if there are at least 10 short URLs in the pool, don't do anything
+POOL_MIN_THRESHOLD = 10
+# if there are less than 20 short URLs in the pool, start making more
+POOL_MAKE_MORE_URLS = 20
+
+# Data storage
 
 # these could easily be REDIS instances (k/v stores)
 hash_db = dict()
 url_db = dict()
 
-# for method 1
+# if we're just generating random strings, need to lock on the URL db
+# otherwise a race condition from another thread might cause
+# duplicate URLs in the url db
 url_db_lock = threading.RLock()
 
-# for method 2
-# this could be a memcached instance
+# if we're using a pool, we need no lock
+# also, this could be a memcached instance somewhere
 pool = list()
 
 # uncomment to see what's happening
@@ -46,10 +54,10 @@ def worker_get(long_url, method):
     '''Simulates a GET: user provides long URL, expects short one'''
     # first method: simply generate a random string and
     # in case of collision try again
-    # short_url = _get_1(long_url)
+    # short_url = get_with_random_url(long_url)
 
     # second method: use a pool
-    # short_url = _get_2(long_url)
+    # short_url = get_with_url_pool(long_url)
 
     short_url = method(long_url)
 
@@ -59,7 +67,7 @@ def worker_get(long_url, method):
     time.sleep(random.random())
 
 
-def _get_1(long_url):
+def get_with_random_url(long_url):
     '''Generating a random URL every time.
 
     Pros: simpler.
@@ -86,7 +94,7 @@ def _get_1(long_url):
         return s
 
 
-def _get_2(long_url):
+def get_with_url_pool(long_url):
     '''Using a short URL pool'''
     h = _hash(long_url)
     if h in hash_db:
@@ -99,40 +107,61 @@ def _get_2(long_url):
         print('-', sep='', end='')
         url_db[s] = long_url
         hash_db[h] = s
+
+        # ping the producer which will take care of
+        # making new URLs if there aren't enough in the pool
         threading.Thread(target=producer).start()
+
         return s
 
 
 def producer():
+    '''Makes short, random URL strings and appends them
+    to a shared pool'''
     if len(pool) > POOL_MIN_THRESHOLD:
         logging.debug("Plenty of fish")
         return
 
     # This guarantees at least MIN/2 pops before replenishm.
-    while len(pool) < 2 * POOL_MIN_THRESHOLD:
+    while len(pool) < POOL_MAKE_MORE_URLS:
         logging.debug("Pool exhausting, making more")
         print('+', sep='', end='')
         s = _make_random_string()
         while s in url_db:
             s = _make_random_string()
         logging.debug("appending {} to pool".format(s))
+        # no need to lock: if another producer makes
+        # an identical random string, 
         pool.append(s)
     logging.debug("Pool replenished")
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('method', choices=['pool', 'random'])
+    parser.add_argument('total_runs', type=int)
+    args = parser.parse_args()
+    if args.method == 'pool':
+        method = get_with_url_pool
+    elif args.method == 'random':
+        method = get_with_random_url
+    else:
+        sys.exit('Unsupported method')
+
     # initialise the pool
     producer()
+
     counter = 0
-    while counter < TOTAL_RUNS:
+    while counter < args.total_runs:
         t0 = time.time()
+        # spawns a new thread for each worker
         threading.Thread(
             target=worker_get,
-            args=('a long url given to thread with some'
+            args=('a long url given to each worker with some'
                   'random content: {}'.format(
                       _make_random_string()
                   ),),
-            kwargs={'method': _get_1}
+            kwargs={'method': method}
         ).start()
         counter += 1
         sys.stdout.flush()
