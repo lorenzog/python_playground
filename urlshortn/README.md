@@ -15,36 +15,73 @@ Usage:
 
 Where the last parameter is the number of "requests".
 
+Sample output: in the 'random' version every dot is a new random URL,
+and every * is a "collision":
+
+    [snip]
+    ....................................................................................................
+
+    Done 10000 requests in 75.8780860901 sec.
+    Throughput: 131.790356285 requests/sec
+
+In the 'pool' version every dot is a request for a short URL, every plus
+sign is the producer creating new short URLs and every minus is a pop()
+from the pool:
+
+    [snip]
+    .-.--.-.++++++++++-.-.-..-.-.--.-.-..--..+++++++++++-.-.--..-.-.-.--..-++++++++++.---...--.
+
+    Done 10000 requests in 5.06192183495 sec.
+    Throughput: 1975.53425874 requests/sec
+
+Technical details
+-----------------
+
 In both instances a worker receives a long URL to shorten. It calculates
 its hash so that it can return the same short URL for the same
-original URL. If 
+original URL. If the hash is new then it is a new URL. The worker then
+"gets" a new short URL and returns it to the calling function.
 
-    Hash DB: k/v store (hash -> short URL)
+Depending on the method used the worker either generates a random string
+or picks one from a pool. The main difference is that the first method
+must check the uniqueness of the string every time with a lock on the
+shared "short URL" dataase; the second uses a "producer" thread that
+replenishes the pool when it is depleting. The producer takes care of
+checking the uniquenes and this does not slow down the worker.
 
-Worker polls hash DB. If present, returns short URL. 
+The code uses Python's data structures but in a fairly agnostic way.
+There are no "tricks" in the core algorithm which shoud be replicable in
+any modern programming language that supports threading and basic
+locking mechanisms.
 
-Then - solution A
------------------
-If not, worker generates random string.
+Porting to real life
+--------------------
 
-    Url DB: k/v store (short URL -> long URL)
+The "hash DB" and "short URL DB" can be mapped to key/value stores (e.g.
+REDIS) while the "short URL pool" could be a memcached instance shared
+between workers.
 
-[atomic operation starts]
-Worker polls Url DB. If present, worker generates another URL.
-If not, worker adds entry in Url DB.
-[atomic opertion ends]
+Pros and cons
+-------------
 
-Then - solution B
------------------
+Method 1: random strings.
 
-    Pool: (linked) list of strings; supports POP, PUSH and LENGTH
+Pros:
+ * Simpler
+ * Deterministic
+Cons:
+ * Its speed decreases as the number of random strings approaches
+   capacity, e.g. for 7 alphanumeric short URLs it's around 37^7. Once
+   we start having collisions the lookup time will significantly impact
+   the speed at which short URLs are returned
 
-If not, workers POPs random string from pool.
+Method 2: pool of short URLs.
 
-    Url DB: k/v store (short URL -> long URL)
-
-Worker adds entry in Url DB and Hash DB.
-
-The Pool is a producer/consumer buffer. The producer regularly polls the length of the pool and if it gets below $THRESHOLD it generates random strings. Guarantees uniqueness by checking against Url DB. 
+Pros:
+ * Scales better
+ * Faster
+Cons:
+ * Tricky to implement correctly
+ * Requires fine-tuning of producer thresholds to optimise
 
 When length of Url DB approaches capacity OR random strings are found to be non unique more than N times consecutively, then add one char to string length or start expiring old URLs (requires reverse-searching hash db)
