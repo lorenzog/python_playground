@@ -1,7 +1,23 @@
 Url shortener
 =============
 
-A worker receives a long URL. Calculates hash of long url
+This proof-of-concept code uses two distinct methods to generate short
+URLs with performance in mind:
+
+ * The first method generates a random string and checks its uniqueness
+ * The second method uses a producer/consumer pattern with a pool of
+   unique URLs
+
+Usage:
+
+    $ python shortn.py random 10000
+    $ python shortn.py pool 10000
+
+Where the last parameter is the number of "requests".
+
+In both instances a worker receives a long URL to shorten. It calculates
+its hash so that it can return the same short URL for the same
+original URL. If 
 
     Hash DB: k/v store (hash -> short URL)
 
