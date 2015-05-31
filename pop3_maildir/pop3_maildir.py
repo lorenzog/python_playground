@@ -1,4 +1,6 @@
-'''Prototype POP3 to Maildir fetcher.
+'''POP3 to Maildir fetcher.
+
+THIS IS WORK IN PROGRESS. Seriously, use at own risk.
 
 The idea is to invoke gpg to read the password from an encrypted file
 like offlineimap does. Fetchmail seems overly complicated to configure
@@ -29,13 +31,16 @@ log.setLevel(logging.INFO)
 
 
 def get_gpg_pass(account, storage):
-    '''GPG method'''
+    '''Reads GPG-encrypted file, returns second item after username.
+
+    Example:
+
+        user pass
+    '''
     command = ("gpg", "-d", storage)
     # get attention
     print '\a'  # BEL
     output = subprocess.check_output(command)
-    # p = subprocess.Popen(command, stdout=subprocess.PIPE)
-    # output, err = p.communicate()
     for line in output.split('\n'):
         r = re.match(r'{} ([a-zA-Z0-9]+)'.format(account), line)
         if r:
@@ -44,6 +49,7 @@ def get_gpg_pass(account, storage):
 
 
 def getpass(username, pwfile):
+    # TODO add code to read OSX keychain, etc.
     return get_gpg_pass(username, pwfile)
 
 
@@ -65,6 +71,8 @@ def msgfactory(fp):
         log.error('Error in parsing message: {}'.format(e))
         # Don't return None since that will
         # stop the mailbox iterator
+        # TODO really? Check this - might be worth to return an error so the
+        # message doesn't get deleted from the POP3 server.
         return ''
 
 
@@ -89,16 +97,23 @@ def get_messages(m, inbox, num_msgs, dry_run=True):
                 continue
             log.debug("Message {} not downloaded yet. Retrieving...".format(i))
             (header, msg, octets) = m.retr(i)
+
             if dry_run:
-                log.debug("Dry run: not adding to inbox, not deleting from server")
-                log.info(msg)
+                log.debug(":: DRY RUN ::")
+                log.info('\n'.join(msg))
+                log.debug(":: DRY RUN ::")
                 log.info('\n')
                 continue
+
             log.debug("Got it, now adding to inbox")
+            # TODO wanna check for errors like, out of memory?
             inbox.add('\n'.join(msg))
             log.debug("Deleting message from server")
+            # XXX IMPORTANT
             m.dele(i)
+
             log.debug("Message deleted from server")
+
             # do we really need this?
             inbox.flush()
             log.info("Successfully retrieved message {} of {}".format(i, num_msgs))
