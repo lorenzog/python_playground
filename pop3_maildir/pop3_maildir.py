@@ -17,20 +17,34 @@ import email.Errors
 import logging
 import mailbox
 import poplib
+import re
+import subprocess
 
 # TODO import configs
 # TODO sqlite for digests
 
-MAILDIR = 'HERE_GOES_LOCAL_MAILDIR'
-POP3_SERVER = 'POP3_server'
-USER = 'user'
-
-
 log = logging.getLogger(__name__)
+log.addHandler(logging.StreamHandler())
+log.setLevel(logging.INFO)
 
 
-def getpass():
-    pass
+def get_gpg_pass(account, storage):
+    '''GPG method'''
+    command = ("gpg", "-d", storage)
+    # get attention
+    print '\a'  # BEL
+    output = subprocess.check_output(command)
+    # p = subprocess.Popen(command, stdout=subprocess.PIPE)
+    # output, err = p.communicate()
+    for line in output.split('\n'):
+        r = re.match(r'{} ([a-zA-Z0-9]+)'.format(account), line)
+        if r:
+            return r.group(1)
+    return None
+
+
+def getpass(username, pwfile):
+    return get_gpg_pass(username, pwfile)
 
 
 # UIDL format:
@@ -54,10 +68,14 @@ def msgfactory(fp):
         return ''
 
 
-def connect_and_logon():
-    m = poplib.POP3_SSL(POP3_SERVER)
-    m.user(USER)
-    m.pass_(getpass())
+def connect_and_logon(server, username, pwfile):
+    m = poplib.POP3_SSL(server)
+    m.user(username)
+    password = getpass(username, pwfile)
+    log.debug("User: {}, pwfile: {}, password: {}".format(
+        username, pwfile, password))
+    # TODO if not password: raise error
+    m.pass_(password)
     return m
 
 
@@ -93,16 +111,25 @@ def get_messages(m, inbox, num_msgs, dry_run=True):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('server')
+    parser.add_argument('username')
+    parser.add_argument('pwfile', help="Password file")
+    parser.add_argument('maildir')
     parser.add_argument('-v', '--verbose', action='store_true')
     parser.add_argument('-n', '--dry-run', action='store_true')
     args = parser.parse_args()
     if args.verbose:
         log.setLevel(logging.DEBUG)
         log.debug('Debug messages enabled')
+    else:
+        log.info('Not verbose')
 
-    inbox = mailbox.Maildir(MAILDIR, msgfactory)
+    inbox = mailbox.Maildir(args.maildir)
+    # TODO try with msgfactory
+    # inbox = mailbox.Maildir(args.maildir, msgfactory)
 
-    m = connect_and_logon()
+    # TODO check for errors
+    m = connect_and_logon(args.server, args.username, args.pwfile)
 
     # m.list()
     # log.debug('There are {} messages'.format(len(m.list())))
@@ -110,6 +137,7 @@ def main():
     log.debug("There are {} messages, for a total of {} octets".format(
         num_msgs, total_size))
 
+    # TODO when errors are raised, do something nice.
     get_messages(m, inbox, num_msgs, args.dry_run)
 
 
