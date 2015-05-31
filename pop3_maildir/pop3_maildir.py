@@ -6,6 +6,10 @@ like offlineimap does. Fetchmail seems overly complicated to configure
 password in cleartext.
 
 Code freely inspired by examples on the python website.
+
+This code is under the GNU GPLv3 License.
+
+Author: Lorenzo Grespan <lorenzo.grespan@gmail.com>
 '''
 import mailbox
 import poplib
