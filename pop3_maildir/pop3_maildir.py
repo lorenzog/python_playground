@@ -30,6 +30,10 @@ log.addHandler(logging.StreamHandler())
 log.setLevel(logging.INFO)
 
 
+class UserNotFoundError(Exception):
+    pass
+
+
 def get_gpg_pass(account, storage):
     '''Reads GPG-encrypted file, returns second item after username.
 
@@ -82,7 +86,8 @@ def connect_and_logon(server, username, pwfile):
     password = getpass(username, pwfile)
     log.debug("User: {}, pwfile: {}, password: {}".format(
         username, pwfile, password))
-    # TODO if not password: raise error
+    if not password:
+        raise UserNotFoundError
     m.pass_(password)
     return m
 
@@ -137,7 +142,8 @@ def main():
         log.setLevel(logging.DEBUG)
         log.debug('Debug messages enabled')
     else:
-        log.info('Not verbose')
+        log.info('Fetching mail for user {} on server {}'.format(
+            args.username, args.server))
 
     inbox = mailbox.Maildir(args.maildir)
     # TODO try with msgfactory
