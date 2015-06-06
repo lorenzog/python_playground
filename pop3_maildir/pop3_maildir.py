@@ -14,36 +14,116 @@ This code is under the GNU GPLv3 License.
 Author: Lorenzo Grespan <lorenzo.grespan@gmail.com>
 '''
 import argparse
+import datetime
 import email
 import email.Errors
 import logging
 import mailbox
+import os
 import poplib
 import re
 import subprocess
+import sqlite3
 
 # TODO import configs
-# TODO sqlite for digests
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.StreamHandler())
 log.setLevel(logging.INFO)
 
 
+# TODO home user/.pop3_maildir.sqlite
+DEFAULT_DB = ''
+
+
 class UserNotFoundError(Exception):
     pass
 
 
+class SetupDbError(Exception):
+    pass
+
+
+def already_downloaded(db_conn, uidl):
+    c = db_conn.cursor()
+    c.execute('''SELECT date, uidl FROM fetched_msgs WHERE uidl = ?''', uidl)
+    ret = c.fetchall()
+    if len(ret) > 0:
+        log.debug('Message with digest {} already retrieved on {}'.format(
+            uidl, ret))
+        return True
+    return False
+
+
+def mark_retrieved(db_conn, uidl):
+    # use m.uidl() to get digest, compare with mailbox, see if already present?
+    # or keep list of downloaded messages somewhere else
+    # TODO: for now let's skip this
+    # open conn
+    date = datetime.datetime.now().isoformat()
+    c = db_conn.cursor()
+    log.debug('Inserting into db: {} {}'.format(date, uidl))
+    c.execute('''INSERT INTO fetched_msgs VALUES (?, ?)''',
+              (date, uidl))
+    c.commit()
+
+
+def get_messages(m, inbox, db_conn, num_msgs, dry_run=True, keep=False, fetch_all=False):
+    '''Core method: fetches messages from POP3 server and stores them in mailbox'''
+    try:
+        for i in range(1, num_msgs + 1):
+            log.debug("Processing message {} of {}".format(i, num_msgs))
+            # calculate message digest
+            _uidl = m.uidl(i)
+            if already_downloaded(db_conn, _uidl) and not fetch_all:
+                log.debug("Message {} already downloaded. Skipping".format(i))
+                continue
+            # log.debug("Message {} not downloaded yet. Retrieving...".format(i))
+            (header, msg, octets) = m.retr(i)
+
+            if dry_run:
+                log.debug(":: DRY RUN ::")
+                log.info('\n'.join(msg))
+                log.debug(":: DRY RUN ::")
+                log.info('\n')
+                continue
+
+            log.debug("Got it, now adding to inbox")
+            # TODO wanna check for errors like, out of memory?
+            inbox.add('\n'.join(msg))
+            # do we really need this?
+            inbox.flush()
+            mark_retrieved(db_conn, _uidl)
+            log.debug("Kept record in db")
+
+            if not keep:
+                log.debug("Deleting message from server")
+                m.dele(i)
+                log.debug("Message deleted from server")
+
+            log.info("Successfully retrieved message {} of {}".format(i, num_msgs))
+    except poplib.error_proto as e:
+        log.error("Didn't work out sorry: {}".format(e))
+    except mailbox.error as e:
+        log.error("Mailbox error: {}".format(e))
+
+    m.quit()
+    log.info("All messages retrieved and stored")
+
+    if not keep:
+        log.info("Messages not deleted from server")
+
+
 def get_gpg_pass(account, storage):
-    '''Reads GPG-encrypted file, returns second item after username.
+    '''Reads GPG-encrypted file, returns second item after 'account' or None.
 
-    Example:
-
-        user pass
+    Format of the file:
+        account password
     '''
     command = ("gpg", "-d", storage)
     # get attention
     print '\a'  # BEL
+    # TODO catch exceptions
     output = subprocess.check_output(command)
     for line in output.split('\n'):
         r = re.match(r'{} ([a-zA-Z0-9]+)'.format(account), line)
@@ -53,18 +133,24 @@ def get_gpg_pass(account, storage):
 
 
 def getpass(username, pwfile):
-    # TODO add code to read OSX keychain, etc.
+    '''Generic wrapper for obtaining the password.
+
+    TODO add code to read OSX keychain, etc.'''
     return get_gpg_pass(username, pwfile)
 
 
-# UIDL format:
-#  ['1 1430130312.M437107P2470V000000000000FE10I0000000051906D54_0.jacques,S=2770',
-# ['response', ['mesgnum uid', ...], octets]
-def already_downloaded(uidl):
-    # use m.uidl() to get digest, compare with mailbox, see if already present?
-    # or keep list of downloaded messages somewhere else
-    # TODO: for now let's skip this
-    return False
+def connect_and_logon(server, username, pwfile):
+    '''Connects to the POP3 server and returns a 'server' object.'''
+    # TODO catch poplib exceptions
+    m = poplib.POP3_SSL(server)
+    m.user(username)
+    password = getpass(username, pwfile)
+    log.debug("User: {}, pwfile: {}, password: {}".format(
+        username, pwfile, password))
+    if not password:
+        raise UserNotFoundError
+    m.pass_(password)
+    return m
 
 
 def msgfactory(fp):
@@ -80,53 +166,24 @@ def msgfactory(fp):
         return ''
 
 
-def connect_and_logon(server, username, pwfile):
-    m = poplib.POP3_SSL(server)
-    m.user(username)
-    password = getpass(username, pwfile)
-    log.debug("User: {}, pwfile: {}, password: {}".format(
-        username, pwfile, password))
-    if not password:
-        raise UserNotFoundError
-    m.pass_(password)
-    return m
+def setup_inbox(maildir):
+    inbox = mailbox.Maildir(maildir)
+    # TODO try with msgfactory
+    # inbox = mailbox.Maildir(maildir, msgfactory)
+    return inbox
 
 
-def get_messages(m, inbox, num_msgs, dry_run=True):
-    try:
-        for i in range(1, num_msgs + 1):
-            log.debug("Processing message {} of {}".format(i, num_msgs))
-            _uidl = m.uidl(i)
-            if already_downloaded(_uidl):
-                log.debug("Message {} already downloaded. Skipping".format(i))
-                continue
-            log.debug("Message {} not downloaded yet. Retrieving...".format(i))
-            (header, msg, octets) = m.retr(i)
+def setup_db(db_location):
+    '''Sets up the sqlite storage'''
+    log.debug('Setting up db at {}'.format(db_location))
+    if not os.path.exists(db_location):
+        raise SetupDbError('File does not exist: {}'.format(db_location))
+    conn = sqlite3.connect(db_location)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS fetched_msgs (date TEXT, uidl TEXT)''')
+    conn.commit()
 
-            if dry_run:
-                log.debug(":: DRY RUN ::")
-                log.info('\n'.join(msg))
-                log.debug(":: DRY RUN ::")
-                log.info('\n')
-                continue
-
-            log.debug("Got it, now adding to inbox")
-            # TODO wanna check for errors like, out of memory?
-            inbox.add('\n'.join(msg))
-            log.debug("Deleting message from server")
-            # XXX IMPORTANT
-            m.dele(i)
-
-            log.debug("Message deleted from server")
-
-            # do we really need this?
-            inbox.flush()
-            log.info("Successfully retrieved message {} of {}".format(i, num_msgs))
-    except poplib.error_proto as e:
-        log.error("Didn't work out sorry: {}".format(e))
-    except mailbox.error as e:
-        log.error("Mailbox error: {}".format(e))
-    m.quit()
+    return conn
 
 
 def main():
@@ -136,7 +193,11 @@ def main():
     parser.add_argument('pwfile', help="Password file")
     parser.add_argument('maildir')
     parser.add_argument('-v', '--verbose', action='store_true')
-    parser.add_argument('-n', '--dry-run', action='store_true')
+    parser.add_argument('-n', '--dry-run', action='store_true', default=False)
+    parser.add_argument('-k', '--keep', action='store_true', default=False,
+                        help="Do not delete messages on server")
+    parser.add_argument('--db-location', default=DEFAULT_DB)
+    parser.add_argument('-a', '--fetch_all', action='store_true', default=False)
     args = parser.parse_args()
     if args.verbose:
         log.setLevel(logging.DEBUG)
@@ -145,9 +206,9 @@ def main():
         log.info('Fetching mail for user {} on server {}'.format(
             args.username, args.server))
 
-    inbox = mailbox.Maildir(args.maildir)
-    # TODO try with msgfactory
-    # inbox = mailbox.Maildir(args.maildir, msgfactory)
+    db_conn = setup_db(args.db_location)
+
+    inbox = setup_inbox(args.maildir)
 
     # TODO check for errors
     m = connect_and_logon(args.server, args.username, args.pwfile)
@@ -159,7 +220,15 @@ def main():
         num_msgs, total_size))
 
     # TODO when errors are raised, do something nice.
-    get_messages(m, inbox, num_msgs, args.dry_run)
+    get_messages(m,
+                 inbox,
+                 db_conn,
+                 num_msgs,
+                 dry_run=args.dry_run,
+                 keep=args.keep,
+                 fetch_all=args.fetch_all)
+
+    db_conn.close()
 
 
 if __name__ == "__main__":
