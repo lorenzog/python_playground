@@ -56,7 +56,7 @@ def already_downloaded(db_conn, uidl):
 
 
 def mark_retrieved(db_conn, uidl):
-    # use m.uidl() to get digest, compare with mailbox, see if already present?
+    # use pop3_server.uidl() to get digest, compare with mailbox, see if already present?
     # or keep list of downloaded messages somewhere else
     # TODO: for now let's skip this
     # open conn
@@ -68,18 +68,18 @@ def mark_retrieved(db_conn, uidl):
     c.commit()
 
 
-def get_messages(m, inbox, db_conn, num_msgs, dry_run=True, keep=False, fetch_all=False):
+def get_messages(pop3_server, inbox, db_conn, num_msgs, dry_run=True, keep=False, fetch_all=False):
     '''Core method: fetches messages from POP3 server and stores them in mailbox'''
     try:
         for i in range(1, num_msgs + 1):
             log.debug("Processing message {} of {}".format(i, num_msgs))
             # calculate message digest
-            _uidl = m.uidl(i)
+            _uidl = pop3_server.uidl(i)
             if already_downloaded(db_conn, _uidl) and not fetch_all:
                 log.debug("Message {} already downloaded. Skipping".format(i))
                 continue
             # log.debug("Message {} not downloaded yet. Retrieving...".format(i))
-            (header, msg, octets) = m.retr(i)
+            (header, msg, octets) = pop3_server.retr(i)
 
             if dry_run:
                 log.debug(":: DRY RUN ::")
@@ -98,7 +98,7 @@ def get_messages(m, inbox, db_conn, num_msgs, dry_run=True, keep=False, fetch_al
 
             if not keep:
                 log.debug("Deleting message from server")
-                m.dele(i)
+                pop3_server.dele(i)
                 log.debug("Message deleted from server")
 
             log.info("Successfully retrieved message {} of {}".format(i, num_msgs))
@@ -107,7 +107,7 @@ def get_messages(m, inbox, db_conn, num_msgs, dry_run=True, keep=False, fetch_al
     except mailbox.error as e:
         log.error("Mailbox error: {}".format(e))
 
-    m.quit()
+    pop3_server.quit()
     log.info("All messages retrieved and stored")
 
     if not keep:
@@ -142,15 +142,15 @@ def getpass(username, pwfile):
 def connect_and_logon(server, username, pwfile):
     '''Connects to the POP3 server and returns a 'server' object.'''
     # TODO catch poplib exceptions
-    m = poplib.POP3_SSL(server)
-    m.user(username)
+    pop3_server = poplib.POP3_SSL(server)
+    pop3_server.user(username)
     password = getpass(username, pwfile)
     log.debug("User: {}, pwfile: {}, password: {}".format(
         username, pwfile, password))
     if not password:
         raise UserNotFoundError
-    m.pass_(password)
-    return m
+    pop3_server.pass_(password)
+    return pop3_server
 
 
 def msgfactory(fp):
@@ -211,16 +211,16 @@ def main():
     inbox = setup_inbox(args.maildir)
 
     # TODO check for errors
-    m = connect_and_logon(args.server, args.username, args.pwfile)
+    pop3_server = connect_and_logon(args.server, args.username, args.pwfile)
 
-    # m.list()
-    # log.debug('There are {} messages'.format(len(m.list())))
-    (num_msgs, total_size) = m.stat()
+    # pop3_server.list()
+    # log.debug('There are {} messages'.format(len(pop3_server.list())))
+    (num_msgs, total_size) = pop3_server.stat()
     log.debug("There are {} messages, for a total of {} octets".format(
         num_msgs, total_size))
 
     # TODO when errors are raised, do something nice.
-    get_messages(m,
+    get_messages(pop3_server,
                  inbox,
                  db_conn,
                  num_msgs,
