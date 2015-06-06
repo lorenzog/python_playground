@@ -32,6 +32,7 @@ log.addHandler(logging.StreamHandler())
 log.setLevel(logging.INFO)
 
 
+DRY_RUN = False
 # TODO home user/.pop3_maildir.sqlite
 DEFAULT_DB = ''
 
@@ -68,8 +69,14 @@ def mark_retrieved(db_conn, uidl):
     c.commit()
 
 
-def get_messages(pop3_server, inbox, db_conn, num_msgs, dry_run=True, keep=False, fetch_all=False):
+def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
     '''Core method: fetches messages from POP3 server and stores them in mailbox'''
+    # pop3_server.list()
+    # log.debug('There are {} messages'.format(len(pop3_server.list())))
+    (num_msgs, total_size) = pop3_server.stat()
+    log.debug("There are {} messages, for a total of {} octets".format(
+        num_msgs, total_size))
+
     try:
         for i in range(1, num_msgs + 1):
             log.debug("Processing message {} of {}".format(i, num_msgs))
@@ -81,15 +88,14 @@ def get_messages(pop3_server, inbox, db_conn, num_msgs, dry_run=True, keep=False
             # log.debug("Message {} not downloaded yet. Retrieving...".format(i))
             (header, msg, octets) = pop3_server.retr(i)
 
-            if dry_run:
-                log.debug(":: DRY RUN ::")
+            if DRY_RUN:
+                log.info(":: DRY RUN ::")
                 log.info('\n'.join(msg))
-                log.debug(":: DRY RUN ::")
+                log.info(":: DRY RUN ::")
                 log.info('\n')
                 continue
 
             log.debug("Got it, now adding to inbox")
-            # TODO wanna check for errors like, out of memory?
             inbox.add('\n'.join(msg))
             # do we really need this?
             inbox.flush()
@@ -201,34 +207,31 @@ def main():
     parser.add_argument('--db-location', default=DEFAULT_DB)
     parser.add_argument('-a', '--fetch_all', action='store_true', default=False)
     args = parser.parse_args()
+
     if args.verbose:
         log.setLevel(logging.DEBUG)
         log.debug('Debug messages enabled')
-    else:
-        log.info('Fetching mail for user {} on server {}'.format(
-            args.username, args.server))
+    log.info('Fetching mail for user {} on server {}'.format(
+        args.username, args.server))
 
+    if args.dry_run:
+        global DRY_RUN
+        DRY_RUN = True
+
+    # setup db
     db_conn = setup_db(args.db_location)
-
+    # setup inbo
     inbox = setup_inbox(args.maildir)
-
+    # setup server connection
     password = getpass(args.username, args.pwfile)
     pop3_server = connect_and_logon(args.server, args.username, password)
     # no longer needed
     del password
 
-    # pop3_server.list()
-    # log.debug('There are {} messages'.format(len(pop3_server.list())))
-    (num_msgs, total_size) = pop3_server.stat()
-    log.debug("There are {} messages, for a total of {} octets".format(
-        num_msgs, total_size))
-
     # TODO when errors are raised, do something nice.
     get_messages(pop3_server,
                  inbox,
                  db_conn,
-                 num_msgs,
-                 dry_run=args.dry_run,
                  keep=args.keep,
                  fetch_all=args.fetch_all)
 
