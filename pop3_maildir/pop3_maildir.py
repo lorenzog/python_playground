@@ -114,7 +114,7 @@ def get_messages(pop3_server, inbox, db_conn, num_msgs, dry_run=True, keep=False
         log.info("Messages not deleted from server")
 
 
-def get_gpg_pass(account, storage):
+def _get_gpg_pass(account, storage):
     '''Reads GPG-encrypted file, returns second item after 'account' or None.
 
     Format of the file:
@@ -133,22 +133,24 @@ def get_gpg_pass(account, storage):
 
 
 def getpass(username, pwfile):
-    '''Generic wrapper for obtaining the password.
+    '''Generic wrapper for obtaining the password.'''
+    # TODO add code to read OSX keychain, etc.
+    password = _get_gpg_pass(username, pwfile)
 
-    TODO add code to read OSX keychain, etc.'''
-    return get_gpg_pass(username, pwfile)
-
-
-def connect_and_logon(server, username, pwfile):
-    '''Connects to the POP3 server and returns a 'server' object.'''
-    # TODO catch poplib exceptions
-    pop3_server = poplib.POP3_SSL(server)
-    pop3_server.user(username)
-    password = getpass(username, pwfile)
     log.debug("User: {}, pwfile: {}, password: {}".format(
         username, pwfile, password))
     if not password:
         raise UserNotFoundError
+    return password
+
+
+def connect_and_logon(server, username, password):
+    '''Connects to the POP3 server and returns a 'server' object.
+
+    Any error would be raised as poplib.error_proto, which is OK.
+    '''
+    pop3_server = poplib.POP3_SSL(server)
+    pop3_server.user(username)
     pop3_server.pass_(password)
     return pop3_server
 
@@ -210,8 +212,10 @@ def main():
 
     inbox = setup_inbox(args.maildir)
 
-    # TODO check for errors
-    pop3_server = connect_and_logon(args.server, args.username, args.pwfile)
+    password = getpass(args.username, args.pwfile)
+    pop3_server = connect_and_logon(args.server, args.username, password)
+    # no longer needed
+    del password
 
     # pop3_server.list()
     # log.debug('There are {} messages'.format(len(pop3_server.list())))
