@@ -4,7 +4,7 @@ import tempfile
 from mock import MagicMock, patch
 from nose.tools import assert_raises
 
-from pop3_maildir import setup_db, what_to_download, UidError
+from pop3_maildir import setup_db, what_to_download, UidError, already_downloaded
 
 # just set logging to debug
 # import logging
@@ -29,6 +29,15 @@ class TestDb(object):
     def test_setup_nodb(self):
         pass
 
+    def test_already_downloaded(self):
+        '''Message already downloaded'''
+        mock = MagicMock()
+        cursor = mock.cursor.return_value
+        # cursor.execute.return_value = [(u'date')]
+        cursor.execute.fetchall.return_value = [(u'date')]
+        ret = already_downloaded(mock, 1)
+        assert ret is False
+
 
 class TestPop(object):
     def test_one(self):
@@ -48,7 +57,7 @@ class TestPop(object):
         pass
 
 
-class TestWhichMessage(object):
+class TestWhatToDownload(object):
     def test_already_downl(self):
         '''DB returns all downloaded'''
         uidl = ['OK', ['1 a', '2 b', '3 c'], 42]

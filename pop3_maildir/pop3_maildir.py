@@ -53,6 +53,7 @@ def already_downloaded(db_conn, uid):
     c = db_conn.cursor()
     c.execute('''SELECT date FROM fetched_msgs WHERE uid = ?''', (uid,))
     ret = c.fetchall()
+    print ret
     # ret: [(u'date'), (u'date2'), ...]
     # more than one means it's an old message
     if len(ret) > 0:
