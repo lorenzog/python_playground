@@ -45,7 +45,7 @@ class SetupDbError(Exception):
     pass
 
 
-class UidlError(Exception):
+class UidError(Exception):
     pass
 
 
@@ -54,6 +54,7 @@ def already_downloaded(db_conn, uid):
     c.execute('''SELECT date FROM fetched_msgs WHERE uid = ?''', (uid,))
     ret = c.fetchall()
     # ret: [(u'date'), (u'date2'), ...]
+    # more than one means it's an old message
     if len(ret) > 0:
         # just print the whole output
         log.debug('Message with id {} already retrieved on {}'.format(
@@ -62,15 +63,15 @@ def already_downloaded(db_conn, uid):
     return False
 
 
-def mark_retrieved(db_conn, uidl):
+def mark_retrieved(db_conn, uid):
     # use pop3_server.uidl() to get digest, compare with mailbox, see if already present?
     # or keep list of downloaded messages somewhere else
     # open conn
     date = datetime.datetime.now().isoformat()
     c = db_conn.cursor()
-    log.debug('Inserting into db: {} {}'.format(date, uidl))
+    log.debug('Inserting into db: {} {}'.format(date, uid))
     c.execute('''INSERT INTO fetched_msgs VALUES (?, ?)''',
-              (date, uidl))
+              (date, uid))
     db_conn.commit()
 
 
@@ -79,19 +80,20 @@ def what_to_download(uidl, db_conn):
     '''Decides which messages to download and returns a list of their id'''
     to_download = list()
     # ['response', ['mesgnum uid', ...], octets]
-    (_resp, uidl_msgs, _octets) = uidl
+    try:
+        (_resp, uidl_msgs, _octets) = uidl
+    except ValueError as e:
+        raise UidError("UIDL not in expected format: {}".format(e))
+
     for uid_str in uidl_msgs:
         # ['msgnum uid']
         _uid = uid_str.split(' ', 1)
+        # _uid is ['msgnum', 'uid']
         if len(_uid) != 2:
-            raise UidlError('UIDL list does not match expected format')
-        try:
-            # split around any whitespace
-            msgno, uid = _uid.split(None, 1)
-        except ValueError as e:
-            raise UidlError(e)
+            raise UidError('UIDL list does not match expected format')
+        msgno, uid = _uid
 
-        if already_downloaded(db_conn, uidl):
+        if already_downloaded(db_conn, uid):
             log.debug("Message {} already downloaded. Skipping".format(msgno))
             continue
         else:
