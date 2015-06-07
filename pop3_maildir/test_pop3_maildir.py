@@ -1,10 +1,13 @@
+import datetime
+import os
 import sqlite3
 import tempfile
 
 from mock import MagicMock, patch
 from nose.tools import assert_raises
 
-from pop3_maildir import setup_db, what_to_download, UidError, already_downloaded
+from pop3_maildir import setup_db, what_to_download, already_downloaded, mark_retrieved
+from pop3_maildir import UidError, SetupDbError
 
 # just set logging to debug
 # import logging
@@ -13,9 +16,21 @@ from pop3_maildir import setup_db, what_to_download, UidError, already_downloade
 
 
 class TestDb(object):
+    def setUp(self):
+        # setting up a real db
+        self.db = tempfile.NamedTemporaryFile(delete=False)
+        self.conn = setup_db(self.db.name)
+        cur = self.conn.cursor()
+        _now = datetime.datetime.now().isoformat()
+        cur.execute('''INSERT INTO fetched_msgs VALUES (?, ?)''',
+                    (_now, 42))
+        self.conn.commit()
+
+    def tearDown(self):
+        os.unlink(self.db.name)
+
     def test_setup(self):
         tmpfile = tempfile.NamedTemporaryFile()
-        print tmpfile.name
         conn = setup_db(tmpfile.name)
         conn.close()
 
@@ -23,20 +38,27 @@ class TestDb(object):
         testcur = testconn.cursor()
         testcur.execute('''SELECT * FROM fetched_msgs''')
         print testcur.fetchall()
-
-        # no errors have been raised at this point
+        # no errors have been raised at this point; test passed
+        assert True
 
     def test_setup_nodb(self):
-        pass
+        '''Non existing db'''
+        with assert_raises(SetupDbError):
+            setup_db('')
+
+    def test_never_downloaded(self):
+        '''Message already downloaded'''
+        ret = already_downloaded(self.conn, 42)
+        assert ret is True
 
     def test_already_downloaded(self):
-        '''Message already downloaded'''
-        mock = MagicMock()
-        cursor = mock.cursor.return_value
-        # cursor.execute.return_value = [(u'date')]
-        cursor.execute.fetchall.return_value = [(u'date')]
-        ret = already_downloaded(mock, 1)
+        '''Message never downloaded'''
+        ret = already_downloaded(self.conn, 1)
         assert ret is False
+
+    def test_mark_retrieved(self):
+        '''Inserting into db a uid'''
+        mark_retrieved(self.conn, 43)
 
 
 class TestPop(object):
