@@ -59,7 +59,6 @@ def already_downloaded(db_conn, uidl):
 def mark_retrieved(db_conn, uidl):
     # use pop3_server.uidl() to get digest, compare with mailbox, see if already present?
     # or keep list of downloaded messages somewhere else
-    # TODO: for now let's skip this
     # open conn
     date = datetime.datetime.now().isoformat()
     c = db_conn.cursor()
@@ -82,6 +81,7 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
             log.debug("Processing message {} of {}".format(i, num_msgs))
             # calculate message digest
             _uidl = pop3_server.uidl(i)
+            # TODO format of uidl: ....
             if already_downloaded(db_conn, _uidl) and not fetch_all:
                 log.debug("Message {} already downloaded. Skipping".format(i))
                 continue

@@ -21,6 +21,27 @@ class TestDb(object):
     def test_setup_nodb(self):
         pass
 
+
+class TestPop(object):
+    def test_one(self):
+        '''Get one message'''
+        pass
+
+    def test_err(self):
+        '''Error in retrieving message'''
+        pass
+
+    def test_del(self):
+        '''Delete message'''
+        pass
+
+    def test_keep(self):
+        '''Re-retrieve message'''
+        pass
+
+
+
+
 if __name__ == "__main__":
     t = TestDb()
     t.test_setup()
