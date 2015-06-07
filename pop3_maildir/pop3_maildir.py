@@ -45,13 +45,19 @@ class SetupDbError(Exception):
     pass
 
 
-def already_downloaded(db_conn, uidl):
+class UidlError(Exception):
+    pass
+
+
+def already_downloaded(db_conn, uid):
     c = db_conn.cursor()
-    c.execute('''SELECT date, uidl FROM fetched_msgs WHERE uidl = ?''', uidl)
+    c.execute('''SELECT date FROM fetched_msgs WHERE uid = ?''', (uid,))
     ret = c.fetchall()
+    # ret: [(u'date'), (u'date2'), ...]
     if len(ret) > 0:
-        log.debug('Message with digest {} already retrieved on {}'.format(
-            uidl, ret))
+        # just print the whole output
+        log.debug('Message with id {} already retrieved on {}'.format(
+            uid, ret))
         return True
     return False
 
@@ -65,7 +71,33 @@ def mark_retrieved(db_conn, uidl):
     log.debug('Inserting into db: {} {}'.format(date, uidl))
     c.execute('''INSERT INTO fetched_msgs VALUES (?, ?)''',
               (date, uidl))
-    c.commit()
+    db_conn.commit()
+
+
+# uidl = unique id list
+def what_to_download(uidl, db_conn):
+    '''Decides which messages to download and returns a list of their id'''
+    to_download = list()
+    # ['response', ['mesgnum uid', ...], octets]
+    (_resp, uidl_msgs, _octets) = uidl
+    for uid_str in uidl_msgs:
+        # ['msgnum uid']
+        _uid = uid_str.split(' ', 1)
+        if len(_uid) != 2:
+            raise UidlError('UIDL list does not match expected format')
+        try:
+            # split around any whitespace
+            msgno, uid = _uid.split(None, 1)
+        except ValueError as e:
+            raise UidlError(e)
+
+        if already_downloaded(db_conn, uidl):
+            log.debug("Message {} already downloaded. Skipping".format(msgno))
+            continue
+        else:
+            to_download.append(msgno)
+
+    return to_download
 
 
 def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
@@ -77,16 +109,17 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
         num_msgs, total_size))
 
     try:
-        for i in range(1, num_msgs + 1):
-            log.debug("Processing message {} of {}".format(i, num_msgs))
-            # calculate message digest
-            _uidl = pop3_server.uidl(i)
-            # TODO format of uidl: ....
-            if already_downloaded(db_conn, _uidl) and not fetch_all:
-                log.debug("Message {} already downloaded. Skipping".format(i))
-                continue
-            # log.debug("Message {} not downloaded yet. Retrieving...".format(i))
-            (header, msg, octets) = pop3_server.retr(i)
+        # determine which messages have been downloaded already
+        if not fetch_all:
+            uidls = pop3_server.uidl()
+            msg_to_download = what_to_download(uidls, db_conn)
+        else:
+            msg_to_download = list(range(1, num_msgs + 1))
+
+        for msgno in msg_to_download:
+            log.debug("Processing message {}".format(msgno))
+            # log.debug("Message {} not downloaded yet. Retrieving...".format(msgno))
+            (header, msg, octets) = pop3_server.retr(msgno)
 
             if DRY_RUN:
                 log.info(":: DRY RUN ::")
@@ -99,15 +132,15 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
             inbox.add('\n'.join(msg))
             # do we really need this?
             inbox.flush()
-            mark_retrieved(db_conn, _uidl)
+            mark_retrieved(db_conn, msgno)
             log.debug("Kept record in db")
 
             if not keep:
                 log.debug("Deleting message from server")
-                pop3_server.dele(i)
+                pop3_server.dele(msgno)
                 log.debug("Message deleted from server")
 
-            log.info("Successfully retrieved message {} of {}".format(i, num_msgs))
+            log.info("Successfully retrieved message {} of {}".format(msgno, num_msgs))
     except poplib.error_proto as e:
         log.error("Didn't work out sorry: {}".format(e))
     except mailbox.error as e:
@@ -188,7 +221,7 @@ def setup_db(db_location):
         raise SetupDbError('File does not exist: {}'.format(db_location))
     conn = sqlite3.connect(db_location)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS fetched_msgs (date TEXT, uidl TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS fetched_msgs (date TEXT, uid TEXT)''')
     conn.commit()
 
     return conn

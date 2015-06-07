@@ -40,6 +40,9 @@ class TestPop(object):
         pass
 
 
+class TestWhichMessage(object):
+    '''Tests the logic behind which messages to download'''
+    pass
 
 
 if __name__ == "__main__":
