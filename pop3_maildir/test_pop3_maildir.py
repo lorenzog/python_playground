@@ -59,6 +59,9 @@ class TestDb(object):
     def test_mark_retrieved(self):
         '''Inserting into db a uid'''
         mark_retrieved(self.conn, 43)
+        cur = self.conn.cursor()
+        cur.execute('''SELECT date FROM fetched_msgs WHERE uid = 43''')
+        assert len(cur.fetchall()) == 1
 
 
 class TestPop(object):
