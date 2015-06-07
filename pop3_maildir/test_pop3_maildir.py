@@ -65,7 +65,7 @@ class TestWhichMessage(object):
         mock.return_value = False
         with patch('pop3_maildir.already_downloaded', mock):
             out = what_to_download(uidl, None)
-        assert out == ['1', '2', '3']
+        assert out == [1, 2, 3]
 
     def test_errlist(self):
         '''F*ckd up list'''
@@ -73,6 +73,26 @@ class TestWhichMessage(object):
         with assert_raises(UidError):
             what_to_download(uidl, None)
 
+    def test_weird_uidls(self):
+        '''msg number is not a number'''
+        uidl = ['OK', ['a weird'], 42]
+        with assert_raises(UidError):
+            what_to_download(uidl, None)
+
+    def test_weird_uidls2(self):
+        '''msg number + uid has no space in between'''
+        uidl = ['OK', ['1weird'], 42]
+        with assert_raises(UidError):
+            what_to_download(uidl, None)
+
+    def test_weird_uidls3(self):
+        '''A longer list (wrong)'''
+        uidl = ['OK', ['1 weird', '1 msg', 'uid 3'], 42]
+        mock = MagicMock()
+        mock.return_value = False
+        with patch('pop3_maildir.already_downloaded', mock):
+            with assert_raises(UidError):
+                what_to_download(uidl, None)
 
 if __name__ == "__main__":
     t = TestDb()

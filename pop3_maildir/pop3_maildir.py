@@ -92,6 +92,10 @@ def what_to_download(uidl, db_conn):
         if len(_uid) != 2:
             raise UidError('UIDL list does not match expected format')
         msgno, uid = _uid
+        try:
+            msgno = int(msgno)
+        except ValueError as e:
+            raise UidError('Message number not a number: ({}) {}'.format(e, msgno))
 
         if already_downloaded(db_conn, uid):
             log.debug("Message {} already downloaded. Skipping".format(msgno))
