@@ -48,7 +48,6 @@ def already_downloaded(db_conn, uid):
     c = db_conn.cursor()
     c.execute('''SELECT date FROM fetched_msgs WHERE uid = ?''', (uid,))
     ret = c.fetchall()
-    print ret
     # ret: [(u'date'), (u'date2'), ...]
     # more than one means it's an old message
     if len(ret) > 0:
@@ -65,10 +64,11 @@ def mark_retrieved(db_conn, uid):
     # open conn
     date = datetime.datetime.now().isoformat()
     c = db_conn.cursor()
-    log.debug('Inserting into db: {} {}'.format(date, uid))
-    c.execute('''INSERT INTO fetched_msgs VALUES (?, ?)''',
-              (date, uid))
-    db_conn.commit()
+    log.debug('Inserting into db:fetched_msgs: {} {}'.format(date, uid))
+    if not DRY_RUN:
+        c.execute('''INSERT INTO fetched_msgs VALUES (?, ?)''',
+                  (date, uid))
+        db_conn.commit()
 
 
 # uidl = unique id list
@@ -76,6 +76,7 @@ def what_to_download(uidl, db_conn):
     '''Decides which messages to download and returns a list of their id'''
     to_download = list()
     # ['response', ['mesgnum uid', ...], octets]
+    log.debug('Querying server for UIDLs returned: {}'.format(uidl))
     try:
         (_resp, uidl_msgs, _octets) = uidl
     except ValueError as e:
@@ -97,6 +98,7 @@ def what_to_download(uidl, db_conn):
             log.debug("Message {} already downloaded. Skipping".format(msgno))
             continue
         else:
+            log.debug("Message {} is new. Adding to download list".format(msgno))
             to_download.append(msgno)
 
     return to_download
@@ -117,6 +119,7 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
             msg_to_download = what_to_download(uidls, db_conn)
         else:
             msg_to_download = list(range(1, num_msgs + 1))
+        log.debug('Messages to download: {}'.format(msg_to_download))
 
         for msgno in msg_to_download:
             log.debug("Processing message {}".format(msgno))
@@ -128,18 +131,22 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
                 log.info('\n'.join(msg))
                 log.info(":: DRY RUN ::")
                 log.info('\n')
-                continue
+                # continue
 
             log.debug("Got it, now adding to inbox")
-            inbox.add('\n'.join(msg))
-            # do we really need this?
-            inbox.flush()
+            if not DRY_RUN:
+                inbox.add('\n'.join(msg))
+                # do we really need this?
+                inbox.flush()
             mark_retrieved(db_conn, msgno)
             log.debug("Kept record in db")
 
-            if not keep:
+            if keep:
+                log.info('Keeping message {} on server')
+            else:
                 log.debug("Deleting message from server")
-                pop3_server.dele(msgno)
+                if not DRY_RUN:
+                    pop3_server.dele(msgno)
                 log.debug("Message deleted from server")
 
             log.info("Successfully retrieved message {} of {}".format(msgno, num_msgs))
@@ -164,7 +171,7 @@ def _get_gpg_pass(account, storage):
     command = ("gpg", "-d", storage)
     # get attention
     print '\a'  # BEL
-    # TODO catch exceptions
+    # TODO catch exceptions nicely?
     output = subprocess.check_output(command)
     for line in output.split('\n'):
         r = re.match(r'{} ([a-zA-Z0-9]+)'.format(account), line)
@@ -175,11 +182,11 @@ def _get_gpg_pass(account, storage):
 
 def getpass(username, pwfile):
     '''Generic wrapper for obtaining the password.'''
-    # TODO add code to read OSX keychain, etc.
+    log.debug("User: {}, pwfile: {}".format(username, pwfile))
+
+    # TODO add code to read OSX keychain based on platform (os.name..)
     password = _get_gpg_pass(username, pwfile)
 
-    log.debug("User: {}, pwfile: {}, password: {}".format(
-        username, pwfile, password))
     if not password:
         raise UserNotFoundError
     return password
@@ -190,6 +197,7 @@ def connect_and_logon(server, username, password):
 
     Any error would be raised as poplib.error_proto, which is OK.
     '''
+    log.debug('Connecting to {} with username: {}'.format(server, username))
     pop3_server = poplib.POP3_SSL(server)
     pop3_server.user(username)
     pop3_server.pass_(password)
@@ -241,6 +249,8 @@ def main():
                         help="Do not delete messages on server")
     parser.add_argument('--db-location', default=DEFAULT_DB)
     parser.add_argument('-a', '--fetch_all', action='store_true', default=False)
+    parser.add_argument('--really-show-password', help="Show password in debug log",
+                        action='store_true', default=False)
     args = parser.parse_args()
 
     if args.verbose:
@@ -259,6 +269,11 @@ def main():
     inbox = setup_inbox(args.maildir)
     # setup server connection
     password = getpass(args.username, args.pwfile)
+    if args.really_show_password:
+        log.debug('Password: {}'.format(password))
+    else:
+        log.debug('*Not showing password in debug log*')
+
     pop3_server = connect_and_logon(args.server, args.username, password)
     # no longer needed
     del password
