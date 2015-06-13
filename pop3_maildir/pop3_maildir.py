@@ -33,15 +33,10 @@ log.setLevel(logging.INFO)
 
 
 DRY_RUN = False
-# TODO home user/.pop3_maildir.sqlite
-DEFAULT_DB = ''
+DEFAULT_DB = os.path.expanduser('~/.pop3_maildir.sqlite')
 
 
 class UserNotFoundError(Exception):
-    pass
-
-
-class SetupDbError(Exception):
     pass
 
 
@@ -225,7 +220,7 @@ def setup_db(db_location):
     '''Sets up the sqlite storage'''
     log.debug('Setting up db at {}'.format(db_location))
     if not os.path.exists(db_location):
-        raise SetupDbError('File does not exist: {}'.format(db_location))
+        log.info('Creating database as it does not exist: {}'.format(db_location))
     conn = sqlite3.connect(db_location)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS fetched_msgs (date TEXT, uid TEXT)''')
