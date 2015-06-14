@@ -158,7 +158,7 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
     pop3_server.quit()
     log.info("All messages retrieved and stored")
 
-    if not keep:
+    if keep:
         log.info("Messages not deleted from server")
 
 
