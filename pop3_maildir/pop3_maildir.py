@@ -184,8 +184,11 @@ def getpass(username, pwfile):
     '''Generic wrapper for obtaining the password.'''
     log.debug("User: {}, pwfile: {}".format(username, pwfile))
 
+    # TODO pgrep for keyboard-sharing program like synergyc, kill -STOP them
+    # use os.kill(synergy_pid, signal.SIGSTOP
     # TODO add code to read OSX keychain based on platform (os.name..)
     password = _get_gpg_pass(username, pwfile)
+    # then kill -CONT to unfreeze them
 
     if not password:
         raise UserNotFoundError
