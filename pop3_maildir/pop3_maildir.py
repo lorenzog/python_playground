@@ -33,6 +33,7 @@ import poplib
 import re
 import subprocess
 import sqlite3
+import sys
 
 # TODO import configs
 
@@ -166,10 +167,10 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
         log.error("Mailbox error: {}".format(e))
 
     pop3_server.quit()
-    log.info("All messages retrieved and stored")
+    log.info("\n :: All messages retrieved and stored")
 
     if keep:
-        log.info("Messages not deleted from server")
+        log.info(" :: Messages not deleted from server")
 
 
 def _get_gpg_pass(account, storage):
@@ -249,10 +250,11 @@ def setup_db(db_location):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('server')
-    parser.add_argument('username')
-    parser.add_argument('pwfile', help="Password file")
-    parser.add_argument('maildir')
+    # parser.add_argument('server')
+    # parser.add_argument('username')
+    # parser.add_argument('pwfile', help="Password file")
+    # parser.add_argument('maildir')
+    parser.add_argument('-a', '--account', help="Only fetch mail for the specified account")
     parser.add_argument('-c', '--config',
                         help="Configuration file. Default {}".format(
                             DEFAULT_CONFIG_FILE),
@@ -262,7 +264,7 @@ def main():
     parser.add_argument('-k', '--keep', action='store_true', default=False,
                         help="Do not delete messages on server")
     parser.add_argument('--db-location', default=DEFAULT_DB)
-    parser.add_argument('-a', '--fetch_all', action='store_true', default=False)
+    parser.add_argument('-f', '--fetch_all', action='store_true', default=False)
     parser.add_argument('--really-show-password', help="Show password in debug log",
                         action='store_true', default=False)
     args = parser.parse_args()
@@ -272,9 +274,22 @@ def main():
         log.debug('Debug messages enabled')
 
     cfg = ConfigParser.SafeConfigParser()
-    cfg.read(args.config)
+
+    if not os.path.exists(args.config):
+        log.error("Config file not found: {}".format(args.config))
+        sys.exit(3)
+    with open(args.config) as cf:
+        cfg.readfp(cf)
 
     accounts = cfg.sections()
+    # if user supplied one account to fetch mail for,
+    if args.account:
+        if args.account in accounts:
+            accounts = args.account
+        else:
+            log.error("Specified account '{}' not in config file {}".format(
+                args.account, args.config))
+            sys.exit(1)
 
     if args.dry_run:
         global DRY_RUN
@@ -287,15 +302,16 @@ def main():
         try:
             username = cfg.get(account, 'username')
             server = cfg.get(account, 'server')
-            pwfile = cfg.get(account, 'pwfile')
-            maildir = cfg.get(account, 'maildir')
+            pwfile = os.path.expanduser(
+                cfg.get(account, 'pwfile'))
+            maildir = os.path.expanduser(
+                cfg.get(account, 'maildir'))
         except ConfigParser.NoOptionError as e:
-            log.error("Missing mandatory option in config file: {}".format(e))
+            log.error("Missing mandatory option for account {} "
+                      "in config file: {}".format(account, e))
+            sys.exit(2)
 
-        keep = cfg.getboolean(account, 'keep')
-        fetch_all = cfg.getboolean(account, 'fetch_all')
-
-        log.info('Fetching mail for user {} on server {}'.format(
+        log.info('\n :: Fetching mail for user {} on server {}'.format(
             username, server))
         # setup inbox
         inbox = setup_inbox(maildir)
@@ -310,13 +326,14 @@ def main():
         # no longer needed
         del password
 
-        # TODO when errors are raised, do something nice.
+        # TODO when errors are raised, do something nice?
         get_messages(pop3_server,
                      inbox,
                      db_conn,
                      keep=args.keep,
                      fetch_all=args.fetch_all)
 
+    # any exceptions from above would stop the program and close the db_conn
     db_conn.close()
 
 
