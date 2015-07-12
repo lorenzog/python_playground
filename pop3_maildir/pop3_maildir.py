@@ -209,6 +209,7 @@ def connect_and_logon(server, username, password):
     Any error would be raised as poplib.error_proto, which is OK.
     '''
     log.debug('Connecting to {} with username: {}'.format(server, username))
+    # imagine the fun if this was susceptible to MitM attacks.
     pop3_server = poplib.POP3_SSL(server)
     pop3_server.user(username)
     pop3_server.pass_(password)

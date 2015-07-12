@@ -9,11 +9,11 @@ Usage:
 
 The above command assumes you have a configuration file in `$HOME/.pop3_maildir.cfg` like this one:
 
-    > [foo]
-    > server=mail.example.com
-    > username=user@example.com
-    > pwfile=mypwfile.gpg
-    > maildir=~/Mail/Mailboxes/example.com/inbox
+    [foo]
+    server=mail.example.com
+    username=user@example.com
+    pwfile=mypwfile.gpg
+    maildir=~/Mail/Mailboxes/example.com/inbox
 
 Where:
 
