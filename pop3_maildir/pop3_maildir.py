@@ -1,19 +1,28 @@
 '''POP3 to Maildir fetcher.
 
-THIS IS WORK IN PROGRESS. Seriously, use at own risk.
-
-The idea is to invoke gpg to read the password from an encrypted file
-like offlineimap does. Fetchmail seems overly complicated to configure
-(and I am not even sure it can do it!) and I don't want to store my
-password in cleartext.
+Usage: see README.md.
 
 Code freely inspired by examples on the python website.
 
-This code is under the GNU GPLv3 License.
+Copyright: 2015, Lorenzo Grespan <lorenzo.grespan@gmail.com>
 
-Author: Lorenzo Grespan <lorenzo.grespan@gmail.com>
+This code is under the GNU GPLv3 License. See file gpl.txt.
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 import argparse
+import ConfigParser
 import datetime
 import email
 import email.Errors
@@ -24,6 +33,7 @@ import poplib
 import re
 import subprocess
 import sqlite3
+import sys
 
 # TODO import configs
 
@@ -34,6 +44,7 @@ log.setLevel(logging.INFO)
 
 DRY_RUN = False
 DEFAULT_DB = os.path.expanduser('~/.pop3_maildir.sqlite')
+DEFAULT_CONFIG_FILE = os.path.expanduser('~/.pop3_maildir.cfg')
 
 
 class UserNotFoundError(Exception):
@@ -156,10 +167,10 @@ def get_messages(pop3_server, inbox, db_conn, keep=False, fetch_all=False):
         log.error("Mailbox error: {}".format(e))
 
     pop3_server.quit()
-    log.info("All messages retrieved and stored")
+    log.info("\n :: All messages retrieved and stored")
 
     if keep:
-        log.info("Messages not deleted from server")
+        log.info(" :: Messages not deleted from server")
 
 
 def _get_gpg_pass(account, storage):
@@ -201,6 +212,7 @@ def connect_and_logon(server, username, password):
     Any error would be raised as poplib.error_proto, which is OK.
     '''
     log.debug('Connecting to {} with username: {}'.format(server, username))
+    # imagine the fun if this was susceptible to MitM attacks.
     pop3_server = poplib.POP3_SSL(server)
     pop3_server.user(username)
     pop3_server.pass_(password)
@@ -242,16 +254,21 @@ def setup_db(db_location):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('server')
-    parser.add_argument('username')
-    parser.add_argument('pwfile', help="Password file")
-    parser.add_argument('maildir')
+    # parser.add_argument('server')
+    # parser.add_argument('username')
+    # parser.add_argument('pwfile', help="Password file")
+    # parser.add_argument('maildir')
+    parser.add_argument('-a', '--account', help="Only fetch mail for the specified account")
+    parser.add_argument('-c', '--config',
+                        help="Configuration file. Default {}".format(
+                            DEFAULT_CONFIG_FILE),
+                        default=DEFAULT_CONFIG_FILE)
     parser.add_argument('-v', '--verbose', action='store_true')
     parser.add_argument('-n', '--dry-run', action='store_true', default=False)
     parser.add_argument('-k', '--keep', action='store_true', default=False,
                         help="Do not delete messages on server")
     parser.add_argument('--db-location', default=DEFAULT_DB)
-    parser.add_argument('-a', '--fetch_all', action='store_true', default=False)
+    parser.add_argument('-f', '--fetch_all', action='store_true', default=False)
     parser.add_argument('--really-show-password', help="Show password in debug log",
                         action='store_true', default=False)
     args = parser.parse_args()
@@ -259,8 +276,24 @@ def main():
     if args.verbose:
         log.setLevel(logging.DEBUG)
         log.debug('Debug messages enabled')
-    log.info('Fetching mail for user {} on server {}'.format(
-        args.username, args.server))
+
+    cfg = ConfigParser.SafeConfigParser()
+
+    if not os.path.exists(args.config):
+        log.error("Config file not found: {}".format(args.config))
+        sys.exit(3)
+    with open(args.config) as cf:
+        cfg.readfp(cf)
+
+    accounts = cfg.sections()
+    # if user supplied one account to fetch mail for,
+    if args.account:
+        if args.account in accounts:
+            accounts = args.account
+        else:
+            log.error("Specified account '{}' not in config file {}".format(
+                args.account, args.config))
+            sys.exit(1)
 
     if args.dry_run:
         global DRY_RUN
@@ -268,26 +301,43 @@ def main():
 
     # setup db
     db_conn = setup_db(args.db_location)
-    # setup inbo
-    inbox = setup_inbox(args.maildir)
-    # setup server connection
-    password = getpass(args.username, args.pwfile)
-    if args.really_show_password:
-        log.debug('Password: {}'.format(password))
-    else:
-        log.debug('*Not showing password in debug log*')
 
-    pop3_server = connect_and_logon(args.server, args.username, password)
-    # no longer needed
-    del password
+    for account in accounts:
+        try:
+            username = cfg.get(account, 'username')
+            server = cfg.get(account, 'server')
+            pwfile = os.path.expanduser(
+                cfg.get(account, 'pwfile'))
+            maildir = os.path.expanduser(
+                cfg.get(account, 'maildir'))
+        except ConfigParser.NoOptionError as e:
+            log.error("Missing mandatory option for account {} "
+                      "in config file: {}".format(account, e))
+            sys.exit(2)
 
-    # TODO when errors are raised, do something nice.
-    get_messages(pop3_server,
-                 inbox,
-                 db_conn,
-                 keep=args.keep,
-                 fetch_all=args.fetch_all)
+        log.info('\n :: Fetching mail for user {} on server {}'.format(
+            username, server))
+        # setup inbox
+        inbox = setup_inbox(maildir)
+        # setup server connection
+        password = getpass(username, pwfile)
+        if args.really_show_password:
+            log.debug('Password: {}'.format(password))
+        else:
+            log.debug('*Not showing password in debug log*')
 
+        pop3_server = connect_and_logon(server, username, password)
+        # no longer needed
+        del password
+
+        # TODO when errors are raised, do something nice?
+        get_messages(pop3_server,
+                     inbox,
+                     db_conn,
+                     keep=args.keep,
+                     fetch_all=args.fetch_all)
+
+    # any exceptions from above would stop the program and close the db_conn
     db_conn.close()
 
 

@@ -7,7 +7,7 @@ from mock import MagicMock, patch
 from nose.tools import assert_raises
 
 from pop3_maildir import setup_db, what_to_download, already_downloaded, mark_retrieved
-from pop3_maildir import UidError, SetupDbError
+from pop3_maildir import UidError
 
 # just set logging to debug
 # import logging
@@ -41,10 +41,10 @@ class TestDb(object):
         # no errors have been raised at this point; test passed
         assert True
 
-    def test_setup_nodb(self):
-        '''Non existing db'''
-        with assert_raises(SetupDbError):
-            setup_db('')
+    # def test_setup_nodb(self):
+    #     '''Non existing db'''
+    #     with assert_raises(SetupDbError):
+    #         setup_db('')
 
     def test_never_downloaded(self):
         '''Message already downloaded'''

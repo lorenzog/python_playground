@@ -5,11 +5,19 @@ A minimal python e-mail fetcher for POP3 servers with support for Maildir and gp
 
 Usage:
 
-    python pop3_maildir.py SERVERNAME username password_file maildir
+    python pop3_maildir.py
+
+The above command assumes you have a configuration file in `$HOME/.pop3_maildir.cfg` like this one:
+
+    [foo]
+    server=mail.example.com
+    username=user@example.com
+    pwfile=mypwfile.gpg
+    maildir=~/Mail/Mailboxes/example.com/inbox
 
 Where:
 
- * `password_file` is a GPG-encrypted file
+ * `pwfile` is a GPG-encrypted file of the format <username> <password>
  * `maildir` is a local maildir
 
 For other options, see:
