@@ -1,3 +1,4 @@
+#!/usr/bin/env python2.7
 '''POP3 to Maildir fetcher.
 
 Usage: see README.md.
