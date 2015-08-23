@@ -1,3 +1,4 @@
+'''uwsgi --http :9090 --wsgi-file foobar.py'''
 import argparse
 from HTMLParser import HTMLParser
 import subprocess
@@ -6,7 +7,18 @@ import tempfile
 
 import requests
 
+# to use aaron's cleaner
+import sys
+sys.path.append('html2text')
+import html2text
 
+
+# command line for html2text
+HTML2TEXT = ['html2text', '-ascii']
+# HTML2TEXT = ['html2text', '-style', 'pretty']
+
+
+# my own implementation
 class MyParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         print "Encountered a start tag:", tag
@@ -29,15 +41,18 @@ def myparser_cleanup(localfile):
 
 
 def html2text_cleanup(localfile):
-    out = subprocess.check_output(['html2text', localfile])
+    cmdline = list(HTML2TEXT)
+    cmdline.append(localfile)
+    # alternative, reading file directly
+    # (found on SO, forgot to note the link :( )
+    # from subprocess import Popen, PIPE, STDOUT
+    # p = Popen(['myapp'], stdout=PIPE, stdin=PIPE, stderr=PIPE)
+    # stdout_data = p.communicate(input='data_to_write')[0]
+    out = subprocess.check_output(cmdline)
     return out
 
-# alternative:
-# from subprocess import Popen, PIPE, STDOUT
-# p = Popen(['myapp'], stdout=PIPE, stdin=PIPE, stderr=PIPE)
-# stdout_data = p.communicate(input='data_to_write')[0]
 
-
+# UWSGI stuff
 form = b'''<html><body><form action="/" method="post">
 <label for="your_name">URL:</label>
     <input id="url_id" type="text" name="url">
@@ -45,24 +60,32 @@ form = b'''<html><body><form action="/" method="post">
 </form></body></html>'''
 
 
-# REQUEST_URI
-# wsgi.input: wsgi._Input
-# PATH_INFO
 def application(env, start_response):
     # print '\n{}\n'.format(dir(env['wsgi.input']))
     if env['REQUEST_METHOD'] == 'GET':
         start_response('200 OK', [('Content-Type', 'text/html')])
         return [form]
     elif env['REQUEST_METHOD'] == 'POST':
-        start_response('200 OK', [('Content-Type', 'text/plain')])
         _in = env['wsgi.input'].read()
         print "got: {}".format(_in)
         # remove after the =
         _split = _in.split('=')
-        # out = read_from_file('/tmp/foo.html')
         # TODO check there's something after the =..
-        out = read_from_url(urllib.unquote(_split[1]))
-        return [out]
+        _url = urllib.unquote(_split[1])
+        out = read_from_url(_url)
+        print "len(out):", len(out)
+        # VERY important - must be binary string
+        # if unicode, uwsgi has undefined behaviour
+        out_html = (b'<html><head/><body>'
+                    '<p><a href="{}">Original</a></p>'
+                    '<p><pre>{}</pre></p>'
+                    '</body></html>').format(_url, out)
+        start_response(
+            '200 OK', [
+                ('Content-Type', 'text/html'),
+            ]
+        )
+        return [out_html]
     else:
         pass
 
@@ -75,8 +98,24 @@ def read_from_file(where):
     return html2text_cleanup(where)
 
 
+# Thanks Aaron, also for this.
+def aaron_cleanup(tmpfile):
+    h = html2text.HTML2Text()
+    # h.ignore_links = True
+    import codecs
+    with codecs.open(tmpfile, encoding='utf-8') as f:
+        content = f.read()
+
+    # content_decoded = unicode(content, errors='replace')
+    # out = h.handle(content_decoded)
+    out = h.handle(content)
+    # print h.handle("<p>Hello, <a href='http://earth.google.com/'>world</a>!")
+    return out
+
+
 def read_from_url(url):
     print "reading from {}".format(url)
+    # XXX why is not deleted?
     tmpfile = tempfile.NamedTemporaryFile()
     try:
         with open(tmpfile.name, 'wb') as f:
@@ -86,7 +125,13 @@ def read_from_url(url):
         print e
         return e.message
     # now read from file
-    return html2text_cleanup(tmpfile.name)
+    print "saved into {}".format(tmpfile.name)
+    # trying command line tools
+    # return html2text_cleanup(tmpfile.name)
+    # trying aaron's cleaner
+    # return aaron_cleanup(tmpfile.name)
+    # ..which doesn't really work well with utf, so why not cooking my own
+    return myparser_cleanup(tmpfile.name)
 
 
 def main():
