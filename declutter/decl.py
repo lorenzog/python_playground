@@ -3,7 +3,6 @@ import argparse
 from HTMLParser import HTMLParser
 import logging
 import subprocess
-import urllib
 import tempfile
 
 import requests
@@ -17,7 +16,6 @@ import html2text
 log = logging.getLogger('decl')
 log.addHandler(logging.StreamHandler())
 log.setLevel(logging.INFO)
-
 
 # command line for html2text
 HTML2TEXT = ['html2text', '-ascii']
@@ -47,6 +45,7 @@ def myparser_cleanup(localfile):
 
 
 def html2text_cleanup(localfile):
+    log.info("Using html2text")
     cmdline = list(HTML2TEXT)
     cmdline.append(localfile)
     # alternative, reading file directly
@@ -58,50 +57,13 @@ def html2text_cleanup(localfile):
     return out
 
 
-# UWSGI stuff
-form = b'''<html><body><form action="/" method="post">
-<label for="your_name">URL:</label>
-    <input id="url_id" type="text" name="url">
-    <input type="submit" value="Cleanup!">
-</form></body></html>'''
-
-
-def application(env, start_response):
-    # log.debug('\n{}\n'.format(dir(env['wsgi.input'])))
-    if env['REQUEST_METHOD'] == 'GET':
-        start_response('200 OK', [('Content-Type', 'text/html')])
-        return [form]
-    elif env['REQUEST_METHOD'] == 'POST':
-        _in = env['wsgi.input'].read()
-        log.debug("got: {}".format(_in))
-        # remove after the =
-        _split = _in.split('=')
-        # TODO check there's something after the =..
-        _url = urllib.unquote(_split[1])
-        out = read_from_url(_url)
-        log.debug("len(out):", len(out))
-        # VERY important - must be binary string
-        # if unicode, uwsgi has undefined behaviour
-        out_html = (b'<html><head/><body>'
-                    '<p><a href="{}">Original</a></p>'
-                    '<p><pre>{}</pre></p>'
-                    '</body></html>').format(_url, out)
-        start_response(
-            '200 OK', [
-                ('Content-Type', 'text/html'),
-            ]
-        )
-        return [out_html]
-    else:
-        pass
-
-
 def usage():
     log.info("Usage")
 
 
 # Thanks Aaron, also for this.
 def aaron_cleanup(tmpfile):
+    log.info("Using aaron's cleanup")
     h = html2text.HTML2Text()
     # h.ignore_links = True
     import codecs
@@ -118,6 +80,7 @@ def aaron_cleanup(tmpfile):
 
 
 def read_from_url(url):
+    '''Dumps the content of the URL into a temporary file then cleans it up'''
     log.debug("reading from {}".format(url))
     # XXX why is not deleted?
     tmpfile = tempfile.NamedTemporaryFile()
@@ -130,12 +93,7 @@ def read_from_url(url):
         return e.message
     # now read from file
     log.debug("saved into {}".format(tmpfile.name))
-    # trying command line tools
-    # return html2text_cleanup(tmpfile.name)
-    # trying aaron's cleaner
-    # return aaron_cleanup(tmpfile.name)
-    # ..which doesn't really work well with utf, so why not cooking my own
-    return myparser_cleanup(tmpfile.name)
+    return cleanup(tmpfile.name)
 
 
 def read_from_file(where):
@@ -170,6 +128,10 @@ def main():
     else:
         log.info('\n'.join(out))
 
+
+# cleanup = html2text_cleanup
+# cleanup = myparser_cleanup
+cleanup = aaron_cleanup
 
 if __name__ == '__main__':
     main()
