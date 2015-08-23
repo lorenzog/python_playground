@@ -44,6 +44,18 @@ def myparser_cleanup(localfile):
     return out
 
 
+def beautifulsoup_cleanup(localfile):
+    log.debug("Using beautiful soup 4")
+    with open(localfile) as f:
+        html_doc = f.read()
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html_doc, 'html.parser')
+    # http://stackoverflow.com/a/5598678/204634
+    for s in soup('script'):
+        print s.extract()
+    return soup.get_text()
+
+
 def html2text_cleanup(localfile):
     log.info("Using html2text")
     cmdline = list(HTML2TEXT)
@@ -62,6 +74,7 @@ def usage():
 
 
 # Thanks Aaron, also for this.
+# https://github.com/aaronsw/html2text
 def aaron_cleanup(tmpfile):
     log.info("Using aaron's cleanup")
     h = html2text.HTML2Text()
@@ -131,7 +144,8 @@ def main():
 
 # cleanup = html2text_cleanup
 # cleanup = myparser_cleanup
-cleanup = aaron_cleanup
+# cleanup = aaron_cleanup
+cleanup = beautifulsoup_cleanup
 
 if __name__ == '__main__':
     main()

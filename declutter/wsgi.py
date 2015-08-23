@@ -53,14 +53,16 @@ def post(env, start_response):
 
     log.debug("len(out): {}".format(len(out)))
 
-    if type(out) is unicode:
+    if type(out) is not unicode:
         # VERY important - must be binary string
         # if unicode, uwsgi has undefined behaviour
-        out = out.encode('utf-8')
+        # out = out.encode('utf-8')
+        out = unicode(out, encoding='utf-8', errors='replace')
     log.debug('type: {}'.format(type(out)))
-    out_html = b'<html><head/><body><p><a href="{}">Original</a></p><p><pre>{}</pre></p></body></html>'.format(_url, out)
+    out_html = u'<html><head/><body><p><a href="{}">Original</a></p><p><pre>{}</pre></p></body></html>'.format(_url, out)
     tmpfile = tempfile.NamedTemporaryFile()
-    with open(tmpfile.name, 'w') as f:
+    import codecs
+    with codecs.open(tmpfile.name, 'w', encoding='utf-8') as f:
         f.write(out_html)
         log.debug("output saved as {}".format(tmpfile.name))
     start_response(
@@ -68,7 +70,7 @@ def post(env, start_response):
             ('Content-Type', 'text/html'),
         ]
     )
-    return [out_html]
+    return [out_html.encode('utf-8')]
 
 
 def application(env, start_response):
