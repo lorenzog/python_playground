@@ -1,4 +1,5 @@
 import argparse
+from HTMLParser import HTMLParser
 import subprocess
 import urllib
 import tempfile
@@ -6,19 +7,28 @@ import tempfile
 import requests
 
 
-# def index(request):
-#     if request.method == 'POST':
-#         form = MyForm(request.POST)
-#         if form.is_valid():
-#             # return HttpResponseRedirect("/thanks/")
-#             out = _do_cleanup(request)
-#             return HttpResponse(out)
-#     else:
-#         form = MyForm()
-#
-#     return render(request, 'd.html', {'form': form})
+class MyParser(HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        print "Encountered a start tag:", tag
 
-def do_cleanup(localfile):
+    def handle_endtag(self, tag):
+        print "Encountered an end tag :", tag
+
+    def handle_data(self, data):
+        print "Encountered some data  :", data
+
+parser = MyParser()
+
+
+def myparser_cleanup(localfile):
+    with open(localfile) as f:
+        stuff = f.read()
+
+    out = parser.feed(stuff)
+    return out
+
+
+def html2text_cleanup(localfile):
     out = subprocess.check_output(['html2text', localfile])
     return out
 
@@ -33,6 +43,7 @@ form = b'''<html><body><form action="/" method="post">
     <input id="url_id" type="text" name="url">
     <input type="submit" value="Cleanup!">
 </form></body></html>'''
+
 
 # REQUEST_URI
 # wsgi.input: wsgi._Input
@@ -61,7 +72,7 @@ def usage():
 
 
 def read_from_file(where):
-    return do_cleanup(where)
+    return html2text_cleanup(where)
 
 
 def read_from_url(url):
@@ -75,7 +86,7 @@ def read_from_url(url):
         print e
         return e.message
     # now read from file
-    return do_cleanup(tmpfile.name)
+    return html2text_cleanup(tmpfile.name)
 
 
 def main():
