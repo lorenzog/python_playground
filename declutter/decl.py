@@ -1,6 +1,7 @@
 '''uwsgi --http :9090 --wsgi-file foobar.py'''
 import argparse
 from HTMLParser import HTMLParser
+import logging
 import subprocess
 import urllib
 import tempfile
@@ -13,6 +14,11 @@ sys.path.append('html2text')
 import html2text
 
 
+log = logging.getLogger('decl')
+log.addHandler(logging.StreamHandler())
+log.setLevel(logging.INFO)
+
+
 # command line for html2text
 HTML2TEXT = ['html2text', '-ascii']
 # HTML2TEXT = ['html2text', '-style', 'pretty']
@@ -21,13 +27,13 @@ HTML2TEXT = ['html2text', '-ascii']
 # my own implementation
 class MyParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
-        print "Encountered a start tag:", tag
+        log.debug("Encountered a start tag:", tag)
 
     def handle_endtag(self, tag):
-        print "Encountered an end tag :", tag
+        log.debug("Encountered an end tag :", tag)
 
     def handle_data(self, data):
-        print "Encountered some data  :", data
+        log.debug("Encountered some data  :", data)
 
 parser = MyParser()
 
@@ -61,19 +67,19 @@ form = b'''<html><body><form action="/" method="post">
 
 
 def application(env, start_response):
-    # print '\n{}\n'.format(dir(env['wsgi.input']))
+    # log.debug('\n{}\n'.format(dir(env['wsgi.input'])))
     if env['REQUEST_METHOD'] == 'GET':
         start_response('200 OK', [('Content-Type', 'text/html')])
         return [form]
     elif env['REQUEST_METHOD'] == 'POST':
         _in = env['wsgi.input'].read()
-        print "got: {}".format(_in)
+        log.debug("got: {}".format(_in))
         # remove after the =
         _split = _in.split('=')
         # TODO check there's something after the =..
         _url = urllib.unquote(_split[1])
         out = read_from_url(_url)
-        print "len(out):", len(out)
+        log.debug("len(out):", len(out))
         # VERY important - must be binary string
         # if unicode, uwsgi has undefined behaviour
         out_html = (b'<html><head/><body>'
@@ -91,11 +97,7 @@ def application(env, start_response):
 
 
 def usage():
-    print 'foo'
-
-
-def read_from_file(where):
-    return html2text_cleanup(where)
+    log.info("Usage")
 
 
 # Thanks Aaron, also for this.
@@ -109,12 +111,14 @@ def aaron_cleanup(tmpfile):
     # content_decoded = unicode(content, errors='replace')
     # out = h.handle(content_decoded)
     out = h.handle(content)
-    # print h.handle("<p>Hello, <a href='http://earth.google.com/'>world</a>!")
+    # log.debug(
+    #     h.handle("<p>Hello, <a href='http://earth.google.com/'>world</a>!")
+    # )
     return out
 
 
 def read_from_url(url):
-    print "reading from {}".format(url)
+    log.debug("reading from {}".format(url))
     # XXX why is not deleted?
     tmpfile = tempfile.NamedTemporaryFile()
     try:
@@ -122,10 +126,10 @@ def read_from_url(url):
             response = requests.get(url)
             f.write(response.content)
     except requests.exceptions.RequestException as e:
-        print e
+        log.error(e)
         return e.message
     # now read from file
-    print "saved into {}".format(tmpfile.name)
+    log.debug("saved into {}".format(tmpfile.name))
     # trying command line tools
     # return html2text_cleanup(tmpfile.name)
     # trying aaron's cleaner
@@ -134,11 +138,19 @@ def read_from_url(url):
     return myparser_cleanup(tmpfile.name)
 
 
+def read_from_file(where):
+    return html2text_cleanup(where)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--localfile')
     parser.add_argument('-u', '--url')
+    parser.add_argument('-d', '--debug', action='store_true')
     args = parser.parse_args()
+
+    if args.debug:
+        log.setLevel(logging.DEBUG)
 
     done_something = False
 
@@ -156,7 +168,7 @@ def main():
     if not done_something:
         usage()
     else:
-        print '\n'.join(out)
+        log.info('\n'.join(out))
 
 
 if __name__ == '__main__':
