@@ -21,6 +21,15 @@ log.setLevel(logging.INFO)
 HTML2TEXT = ['html2text', '-ascii']
 # HTML2TEXT = ['html2text', '-style', 'pretty']
 
+DEFAULT_CLEANER = 'Aaron'
+
+
+def cleanup(what, cleaner):
+    if cleaner in cleaners:
+        return cleaners[cleaner](what)
+    else:
+        return "Invalid routine to clean up"
+
 
 # my own implementation
 class MyParser(HTMLParser):
@@ -52,7 +61,7 @@ def beautifulsoup_cleanup(localfile):
     soup = BeautifulSoup(html_doc, 'html.parser')
     # http://stackoverflow.com/a/5598678/204634
     for s in soup('script'):
-        print s.extract()
+        s.extract()
     return soup.get_text()
 
 
@@ -92,7 +101,7 @@ def aaron_cleanup(tmpfile):
     return out
 
 
-def read_from_url(url):
+def read_from_url(url, cleaner=DEFAULT_CLEANER):
     '''Dumps the content of the URL into a temporary file then cleans it up'''
     log.debug("reading from {}".format(url))
     # XXX why is not deleted?
@@ -106,15 +115,16 @@ def read_from_url(url):
         return e.message
     # now read from file
     log.debug("saved into {}".format(tmpfile.name))
-    return cleanup(tmpfile.name)
+    return cleanup(tmpfile.name, cleaner)
 
 
-def read_from_file(where):
-    return html2text_cleanup(where)
+def read_from_file(where, cleaner):
+    return cleanup(where, cleaner)
 
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('cleaner', choice=cleaners.keys())
     parser.add_argument('-l', '--localfile')
     parser.add_argument('-u', '--url')
     parser.add_argument('-d', '--debug', action='store_true')
@@ -127,12 +137,12 @@ def main():
 
     out = list()
     if args.localfile:
-        _out = read_from_file(args.localfile)
+        _out = read_from_file(args.localfile, args.cleaner)
         out.append(_out)
         done_something = True
 
     if args.url:
-        _out = read_from_url(args.url)
+        _out = read_from_url(args.url, args.cleaner)
         out.append(_out)
         done_something = True
 
@@ -142,10 +152,10 @@ def main():
         log.info('\n'.join(out))
 
 
-# cleanup = html2text_cleanup
-# cleanup = myparser_cleanup
-# cleanup = aaron_cleanup
-cleanup = beautifulsoup_cleanup
-
 if __name__ == '__main__':
     main()
+
+cleaners = {'html2text': html2text_cleanup,
+            'simpleParser': myparser_cleanup,
+            'Aaron': aaron_cleanup,
+            'BeautifulSoup': beautifulsoup_cleanup}
